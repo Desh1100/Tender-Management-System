@@ -306,21 +306,41 @@ exports.getLogisticsDemandForms = async (req, res) => {
 
 exports.approveDemandFormLogistics = async (req, res) => {
   try {
+    console.log('Received approval request body:', req.body);
+    
+    const updateData = {
+      isApproved: false,
+      requestStage: 'Bursar',
+      updatedAt: Date.now(),
+      LogisticsisApproved: req.body.LogisticsisApproved,
+      LogisticscreatedAt: Date.now(),
+      LogisticsUserID: req.body.LogisticsUserID
+    };
+
+    // Add log data if provided
+    if (req.body.logData) {
+      updateData.logData = req.body.logData;
+      console.log('Adding log data:', req.body.logData);
+    }
+
+    // Add log notes if provided
+    if (req.body.logNotes) {
+      updateData.logNotes = req.body.logNotes;
+      console.log('Adding log notes:', req.body.logNotes);
+    }
+
+    console.log('Update data:', updateData);
+
     const demandForm = await DemandForm.findByIdAndUpdate(
       req.params.id,
-      {
-        isApproved: false,
-        requestStage: 'Bursar',
-        updatedAt: Date.now(),
-        LogisticsisApproved: req.body.LogisticsisApproved,
-        LogisticscreatedAt: Date.now(),
-        LogisticsUserID: req.body.LogisticsUserID
-      },
+      updateData,
       { new: true, runValidators: true }
     );
 
+    console.log('Updated demand form:', demandForm);
     res.json(demandForm);
   } catch (error) {
+    console.error('Error in approveDemandFormLogistics:', error);
     res.status(400).json({ message: error.message });
   }
 };

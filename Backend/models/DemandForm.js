@@ -129,6 +129,34 @@ const DemandFormSchema = new mongoose.Schema({
     default: null
   },
 
+  // Logistics Log Section Data
+  logData: [{
+    srNo: {
+      type: Number,
+      default: null
+    },
+    availabilityInStock: {
+      type: String,
+      default: ''
+    },
+    dateLastIssueMade: {
+      type: Date,
+      default: null
+    },
+    dateLastPurchase: {
+      type: Date,
+      default: null
+    },
+    lastPurchasePrice: {
+      type: Number,
+      default: null
+    }
+  }],
+  logNotes: {
+    type: String,
+    default: ''
+  },
+
   // Bursar Approval details
   BursarisApproved: {
     type: Boolean,

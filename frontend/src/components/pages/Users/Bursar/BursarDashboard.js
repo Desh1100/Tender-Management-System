@@ -1048,6 +1048,73 @@ const BursarDashboard = () => {
                       </Box>
                     )}
 
+                    {/* Log Data Section - Show if logistics officer has provided log data */}
+                    {selectedDemand.logData && selectedDemand.logData.length > 0 && (
+                      <Box sx={{ 
+                        mb: 3, 
+                        p: 2.5, 
+                        border: '2px solid #FF9800',
+                        borderRadius: 2,
+                        background: 'linear-gradient(145deg, rgba(255, 152, 0, 0.05), rgba(255, 183, 77, 0.1))',
+                        boxShadow: '0 4px 12px rgba(255, 152, 0, 0.15)'
+                      }}>
+                        <Typography variant="h6" sx={{ 
+                          fontWeight: 'bold', 
+                          mb: 2, 
+                          color: '#FF9800',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}>
+                          📋 Log Section Data
+                        </Typography>
+                        
+                        {selectedDemand.logData.map((log, index) => (
+                          <Paper key={index} elevation={1} sx={{ p: 2, mb: 2, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.8)' }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#FF9800' }}>
+                              Item {index + 1}: {selectedDemand.items?.[index]?.description || 'N/A'}
+                            </Typography>
+                            <Grid container spacing={2}>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">SR No:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{log.srNo || 'N/A'}</Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Availability in Stock:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{log.availabilityInStock || 'N/A'}</Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Date Last Issue:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                  {log.dateLastIssueMade ? new Date(log.dateLastIssueMade).toLocaleDateString() : 'N/A'}
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Date Last Purchase:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                  {log.dateLastPurchase ? new Date(log.dateLastPurchase).toLocaleDateString() : 'N/A'}
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={12}>
+                                <Typography variant="caption" color="text.secondary">Last Purchase Price:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                                  {log.lastPurchasePrice || '0.00'}
+                                </Typography>
+                              </Grid>
+                            </Grid>
+                          </Paper>
+                        ))}
+                        
+                        {selectedDemand.logNotes && (
+                          <Box sx={{ mt: 2, p: 2, background: 'rgba(255, 152, 0, 0.1)', borderRadius: 2 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#FF9800' }}>
+                              Logistics Officer Notes:
+                            </Typography>
+                            <Typography variant="body2">{selectedDemand.logNotes}</Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+
                     {/* Bursar Information - Current Stage */}
                     <Box sx={{ 
                       mb: 3, 

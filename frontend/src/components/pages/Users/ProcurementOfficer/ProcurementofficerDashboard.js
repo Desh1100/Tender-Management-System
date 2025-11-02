@@ -2424,6 +2424,54 @@ const ProcurementDashboard = () => {
                                                     </Typography>
                                                 )}
                                             </Box>
+
+                                            {/* Log Data Section - Show if logistics officer has provided log data */}
+                                            {selectedDemandForm.logData && selectedDemandForm.logData.length > 0 && (
+                                                <Box sx={{ mt: 2, p: 2, backgroundColor: 'rgba(255, 152, 0, 0.05)', borderRadius: 1 }}>
+                                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#FF9800' }}>
+                                                        📋 Logistics Officer Log Section Data
+                                                    </Typography>
+                                                    
+                                                    {selectedDemandForm.logData.map((log, index) => (
+                                                        <Box key={index} sx={{ mb: 1, p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                                                            <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#FF9800' }}>
+                                                                Item {index + 1}: {selectedDemandForm.items?.[index]?.description || 'N/A'}
+                                                            </Typography>
+                                                            <Grid container spacing={1} sx={{ mt: 0.5 }}>
+                                                                <Grid item xs={6}>
+                                                                    <Typography variant="caption" color="text.secondary">SR No: {log.srNo || 'N/A'}</Typography>
+                                                                </Grid>
+                                                                <Grid item xs={6}>
+                                                                    <Typography variant="caption" color="text.secondary">Stock: {log.availabilityInStock || 'N/A'}</Typography>
+                                                                </Grid>
+                                                                <Grid item xs={6}>
+                                                                    <Typography variant="caption" color="text.secondary">
+                                                                        Last Issue: {log.dateLastIssueMade ? new Date(log.dateLastIssueMade).toLocaleDateString() : 'N/A'}
+                                                                    </Typography>
+                                                                </Grid>
+                                                                <Grid item xs={6}>
+                                                                    <Typography variant="caption" color="text.secondary">
+                                                                        Last Purchase: {log.dateLastPurchase ? new Date(log.dateLastPurchase).toLocaleDateString() : 'N/A'}
+                                                                    </Typography>
+                                                                </Grid>
+                                                                <Grid item xs={12}>
+                                                                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                                                                        Last Purchase Price: ${log.lastPurchasePrice || '0.00'}
+                                                                    </Typography>
+                                                                </Grid>
+                                                            </Grid>
+                                                        </Box>
+                                                    ))}
+                                                    
+                                                    {selectedDemandForm.logNotes && (
+                                                        <Box sx={{ mt: 1, p: 1, backgroundColor: 'rgba(255, 152, 0, 0.1)', borderRadius: 1 }}>
+                                                            <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#FF9800' }}>
+                                                                Notes: {selectedDemandForm.logNotes}
+                                                            </Typography>
+                                                        </Box>
+                                                    )}
+                                                </Box>
+                                            )}
                                         </Box>
 
                                         {/* Bursar Approval */}

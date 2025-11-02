@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../api';
 import Swal from 'sweetalert2';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import logo from '../../../assets/img/navlogo.png';
 import background from '../../../assets/img/background.jpg';
 import {
@@ -40,7 +42,8 @@ import {
   LocalShipping as ShippingIcon,
   Logout as LogoutIcon,
   Home as HomeIcon,
-  Star as FeaturesIcon
+  Star as FeaturesIcon,
+  FileDownload as ExportIcon
 } from '@mui/icons-material';
 
 // Custom styled components
@@ -113,6 +116,12 @@ const LogisticsDashboard = () => {
     approved: 0,
     rejected: 0
   });
+  
+  // Log section data for approval
+  const [openApprovalDialog, setOpenApprovalDialog] = useState(false);
+  const [itemToApprove, setItemToApprove] = useState(null);
+  const [logData, setLogData] = useState([]);
+  const [notes, setNotes] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -272,48 +281,88 @@ const LogisticsDashboard = () => {
   };
 
   const handleApprove = async (item) => {
-    const result = await Swal.fire({
-      title: 'Confirm Approval',
-      text: 'Are you sure you want to approve this demand form?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonColor: '#4CAF50',
-      cancelButtonColor: '#F44336',
-      confirmButtonText: 'Yes, approve it!',
-      background: 'linear-gradient(145deg, #ffffff, #f5f5f5)',
-      backdrop: `
-        rgba(0,0,0,0.4)
-      `
-    });
+    setItemToApprove(item);
+    // Initialize log data based on item's items array
+    const initialLogData = item.items ? item.items.map((_, index) => ({
+      srNo: index + 1,
+      availabilityInStock: '',
+      dateLastIssueMade: '',
+      dateLastPurchase: '',
+      lastPurchasePrice: ''
+    })) : [];
+    setLogData(initialLogData);
+    setNotes('');
+    setOpenApprovalDialog(true);
+  };
 
-    if (result.isConfirmed) {
-      try {
-        const userId = localStorage.getItem('userId');
-        
-        await api.patch(`/api/demands/${item._id}/approve/logistics`, {
-          LogisticsisApproved: true,
-          LogisticsUserID: userId
-        });
+  const handleConfirmApproval = async () => {
+    // Validate log data - ensure critical fields are filled
+    const hasEmptyFields = logData.some(log => 
+      !log.availabilityInStock || !log.dateLastIssueMade || !log.dateLastPurchase || !log.lastPurchasePrice
+    );
 
-        Swal.fire({
-          title: 'Approved!',
-          text: 'Demand form approved successfully!',
-          icon: 'success',
-          background: 'linear-gradient(145deg, #ffffff, #f5f5f5)',
-          showConfirmButton: false,
-          timer: 1500
-        });
-
-        fetchData();
-      } catch (error) {
-        Swal.fire({
-          title: 'Error',
-          text: error.response?.data?.message || 'Approval failed',
-          icon: 'error',
-          background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
-        });
-      }
+    if (hasEmptyFields) {
+      Swal.fire({
+        title: 'Incomplete Log Data',
+        text: 'Please fill in all required fields (Availability in Stock, Date Last Issue Made, Date Last Purchase, and Last Purchase Price) for all items.',
+        icon: 'warning',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+      return;
     }
+
+    try {
+      const userId = localStorage.getItem('userId');
+      
+      const requestData = {
+        LogisticsisApproved: true,
+        LogisticsUserID: userId,
+        logData: logData,
+        logNotes: notes
+      };
+
+      console.log('Sending approval request with data:', requestData);
+      
+      await api.patch(`/api/demands/${itemToApprove._id}/approve/logistics`, requestData);
+
+      Swal.fire({
+        title: 'Approved!',
+        text: 'Demand form approved successfully with log data!',
+        icon: 'success',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)',
+        showConfirmButton: false,
+        timer: 1500
+      });
+
+      setOpenApprovalDialog(false);
+      setItemToApprove(null);
+      setLogData([]);
+      setNotes('');
+      fetchData();
+    } catch (error) {
+      Swal.fire({
+        title: 'Error',
+        text: error.response?.data?.message || 'Approval failed',
+        icon: 'error',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+    }
+  };
+
+  const handleLogDataChange = (index, field, value) => {
+    const updatedLogData = [...logData];
+    updatedLogData[index] = {
+      ...updatedLogData[index],
+      [field]: value
+    };
+    setLogData(updatedLogData);
+  };
+
+  const handleCloseApprovalDialog = () => {
+    setOpenApprovalDialog(false);
+    setItemToApprove(null);
+    setLogData([]);
+    setNotes('');
   };
 
   const handleReject = async () => {
@@ -387,6 +436,345 @@ const LogisticsDashboard = () => {
     });
   };
 
+  const handleExportReport = async () => {
+    try {
+      setLoading(true);
+      
+      // Get approved items by current user
+      const userId = localStorage.getItem('userId');
+      const approvedItems = demandForms.filter(item => {
+        const isApproved = item.LogisticsisApproved === true && item.LogisticsUserID === userId;
+        const isRector = item.requestStage === 'Rector' && item.LogisticsUserID === userId;
+        const isProcurement = item.requestStage === 'Procurement Officer' && item.LogisticsUserID === userId;
+        return isApproved || isRector || isProcurement;
+      });
+
+      if (approvedItems.length === 0) {
+        Swal.fire({
+          title: 'No Data',
+          text: 'No approved items found to export.',
+          icon: 'info',
+          background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+        });
+        return;
+      }
+
+      // Show export options
+      const result = await Swal.fire({
+        title: 'Export Report',
+        text: 'Choose export format:',
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: 'CSV Format',
+        denyButtonText: 'PDF Format',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#4CAF50',
+        denyButtonColor: '#2196F3',
+        cancelButtonColor: '#F44336',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+
+      if (result.isConfirmed) {
+        exportToCSV(approvedItems);
+      } else if (result.isDenied) {
+        exportToPDF(approvedItems);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      Swal.fire({
+        title: 'Export Error',
+        text: 'Failed to export report. Please try again.',
+        icon: 'error',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportToCSV = (approvedItems) => {
+    try {
+      // Create CSV header
+      const headers = [
+        'Demand No',
+        'Department',
+        'Request Stage',
+        'Requirement Type',
+        'Created Date',
+        'Approved Date',
+        'Item Description',
+        'Quantity',
+        'Unit',
+        'Estimated Cost',
+        'Availability in Stock',
+        'Date Last Issue Made',
+        'Date Last Purchase',
+        'Last Purchase Price',
+        'Logistics Notes',
+        'HOD User',
+        'Rector User',
+        'Procurement User'
+      ];
+
+      // Create CSV rows
+      const rows = [];
+      
+      approvedItems.forEach(item => {
+        if (item.items && item.items.length > 0) {
+          item.items.forEach((demandItem, index) => {
+            const logDataItem = item.logData && item.logData[index] ? item.logData[index] : {};
+            
+            rows.push([
+              item.demandNo || 'N/A',
+              item.department || 'N/A',
+              item.requestStage || 'N/A',
+              item.requirementType || 'N/A',
+              item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A',
+              item.LogisticsApprovalDate ? new Date(item.LogisticsApprovalDate).toLocaleDateString() : 'N/A',
+              demandItem.description || 'N/A',
+              demandItem.quantity || 'N/A',
+              demandItem.unit || 'N/A',
+              demandItem.estimatedCost || 'N/A',
+              logDataItem.availabilityInStock || 'N/A',
+              logDataItem.dateLastIssueMade ? new Date(logDataItem.dateLastIssueMade).toLocaleDateString() : 'N/A',
+              logDataItem.dateLastPurchase ? new Date(logDataItem.dateLastPurchase).toLocaleDateString() : 'N/A',
+              logDataItem.lastPurchasePrice || 'N/A',
+              item.logNotes || 'N/A',
+              item.HODUser ? item.HODUser.fullName : 'N/A',
+              item.RectorUser ? item.RectorUser.fullName : 'N/A',
+              item.ProcurementUser ? item.ProcurementUser.fullName : 'N/A'
+            ]);
+          });
+        } else {
+          // If no items array, add a single row with basic info
+          rows.push([
+            item.demandNo || 'N/A',
+            item.department || 'N/A',
+            item.requestStage || 'N/A',
+            item.requirementType || 'N/A',
+            item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A',
+            item.LogisticsApprovalDate ? new Date(item.LogisticsApprovalDate).toLocaleDateString() : 'N/A',
+            'No items data',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            'N/A',
+            item.logNotes || 'N/A',
+            item.HODUser ? item.HODUser.fullName : 'N/A',
+            item.RectorUser ? item.RectorUser.fullName : 'N/A',
+            item.ProcurementUser ? item.ProcurementUser.fullName : 'N/A'
+          ]);
+        }
+      });
+
+      // Convert to CSV format
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(field => `"${field}"`).join(','))
+      ].join('\n');
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `logistics_approved_report_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      Swal.fire({
+        title: 'Export Successful!',
+        text: 'Your report has been downloaded as a CSV file.',
+        icon: 'success',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } catch (error) {
+      console.error('CSV export error:', error);
+      Swal.fire({
+        title: 'Export Error',
+        text: 'Failed to generate CSV file.',
+        icon: 'error',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+    }
+  };
+
+  const exportToPDF = (approvedItems) => {
+    try {
+      console.log('Starting PDF export...', { jsPDF });
+      
+      // Create a new jsPDF instance
+      const doc = new jsPDF();
+      console.log('jsPDF instance created:', doc);
+      
+      // Add title and header information
+      doc.setFontSize(20);
+      doc.setTextColor(37, 59, 128); // #253B80
+      doc.text('Logistics Approved Items Report', 105, 25, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.setTextColor(102, 102, 102); // #666666
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 105, 35, { align: 'center' });
+      doc.text(`Total Approved Items: ${approvedItems.length}`, 105, 42, { align: 'center' });
+      doc.text(`Logistics Officer: ${localStorage.getItem('userName') || 'Current User'}`, 105, 49, { align: 'center' });
+      
+      let yPosition = 65;
+      
+      // Process each approved item (simplified version)
+      approvedItems.forEach((item, index) => {
+        // Check if we need a new page
+        if (yPosition > 250) {
+          doc.addPage();
+          yPosition = 20;
+        }
+        
+        // Item header
+        doc.setFontSize(14);
+        doc.setTextColor(37, 59, 128);
+        doc.text(`Demand Form ${index + 1}: ${item.demandNo || 'N/A'}`, 20, yPosition);
+        yPosition += 10;
+        
+        // Basic information
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text(`Department: ${item.department || 'N/A'}`, 20, yPosition);
+        yPosition += 6;
+        doc.text(`Request Stage: ${item.requestStage || 'N/A'}`, 20, yPosition);
+        yPosition += 6;
+        doc.text(`Requirement Type: ${item.requirementType || 'N/A'}`, 20, yPosition);
+        yPosition += 6;
+        doc.text(`Created: ${item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}`, 20, yPosition);
+        yPosition += 6;
+        doc.text(`ID: ${item._id.substring(0, 20)}...`, 20, yPosition);
+        yPosition += 10;
+        
+        // Items information (simplified)
+        if (item.items && item.items.length > 0) {
+          doc.setFontSize(12);
+          doc.setTextColor(37, 59, 128);
+          doc.text('Items:', 20, yPosition);
+          yPosition += 8;
+          
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          
+          item.items.slice(0, 3).forEach((demandItem, itemIndex) => {
+            const logDataItem = item.logData && item.logData[itemIndex] ? item.logData[itemIndex] : {};
+            
+            if (yPosition > 270) {
+              doc.addPage();
+              yPosition = 20;
+            }
+            
+            doc.text(`${itemIndex + 1}. ${(demandItem.description || 'N/A').substring(0, 40)}`, 25, yPosition);
+            yPosition += 5;
+            doc.text(`   Qty: ${demandItem.qty || 'N/A'} | Stock: ${logDataItem.availabilityInStock || 'N/A'}`, 25, yPosition);
+            yPosition += 5;
+            if (logDataItem.lastPurchasePrice) {
+              doc.text(`   Last Price: ${logDataItem.lastPurchasePrice}`, 25, yPosition);
+              yPosition += 5;
+            }
+            yPosition += 2;
+          });
+          
+          if (item.items.length > 3) {
+            doc.text(`... and ${item.items.length - 3} more items`, 25, yPosition);
+            yPosition += 8;
+          }
+        }
+        
+        // Logistics notes if available
+        if (item.logNotes) {
+          if (yPosition > 250) {
+            doc.addPage();
+            yPosition = 20;
+          }
+          
+          doc.setFontSize(10);
+          doc.setTextColor(37, 59, 128);
+          doc.text('Logistics Notes:', 20, yPosition);
+          yPosition += 7;
+          
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          const noteLines = doc.splitTextToSize(item.logNotes, 170);
+          doc.text(noteLines, 20, yPosition);
+          yPosition += noteLines.length * 4 + 5;
+        }
+        
+        // Approval chain
+        if (yPosition > 240) {
+          doc.addPage();
+          yPosition = 20;
+        }
+        
+        doc.setFontSize(10);
+        doc.setTextColor(37, 59, 128);
+        doc.text('Approval Chain:', 20, yPosition);
+        yPosition += 7;
+        
+        doc.setFontSize(9);
+        doc.setTextColor(0, 0, 0);
+        doc.text(`HOD: ${item.HODUser ? item.HODUser.fullName : 'N/A'}`, 20, yPosition);
+        yPosition += 5;
+        doc.text(`Rector: ${item.RectorUser ? item.RectorUser.fullName : 'N/A'}`, 20, yPosition);
+        yPosition += 5;
+        doc.text(`Procurement: ${item.ProcurementUser ? item.ProcurementUser.fullName : 'N/A'}`, 20, yPosition);
+        yPosition += 15;
+        
+        // Add separator line
+        if (index < approvedItems.length - 1) {
+          doc.setDrawColor(200, 200, 200);
+          doc.line(20, yPosition, 190, yPosition);
+          yPosition += 10;
+        }
+      });
+      
+      // Generate filename with current date
+      const fileName = `logistics_approved_report_${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      console.log('About to save PDF with filename:', fileName);
+      
+      // Save the PDF
+      doc.save(fileName);
+      
+      console.log('PDF save completed');
+      
+      Swal.fire({
+        title: 'PDF Downloaded Successfully!',
+        text: `Your report has been downloaded as "${fileName}"`,
+        icon: 'success',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)',
+        timer: 2000,
+        showConfirmButton: false
+      });
+      
+    } catch (error) {
+      console.error('PDF export error:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      Swal.fire({
+        title: 'Export Error',
+        text: `Failed to generate PDF file: ${error.message}. Please check the console for details.`,
+        icon: 'error',
+        background: 'linear-gradient(145deg, #ffffff, #f5f5f5)'
+      });
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{
@@ -449,19 +837,22 @@ const LogisticsDashboard = () => {
             >
               Home
             </Button>
+        
             <Button
               color="inherit"
-              startIcon={<FeaturesIcon />}
-              onClick={() => navigate('/logistics/orders/tracking')}
+              startIcon={<ExportIcon />}
+              onClick={handleExportReport}
               sx={{
                 '&:hover': {
                   background: 'rgba(255,255,255,0.1)',
                   transform: 'translateY(-2px)'
                 },
-                transition: 'all 0.3s ease'
+                transition: 'all 0.3s ease',
+                background: 'rgba(76, 175, 80, 0.2)',
+                border: '1px solid rgba(76, 175, 80, 0.3)'
               }}
             >
-              Approved Orders
+              Export Report
             </Button>
             <Button
               color="inherit"
@@ -523,41 +914,62 @@ const LogisticsDashboard = () => {
         <GradientCard>
           <CardContent>
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-              <Tabs
-                value={tabValue}
-                onChange={handleTabChange}
-                variant="fullWidth"
-                sx={{
-                  '& .MuiTabs-indicator': {
-                    height: 4,
-                    background: 'linear-gradient(90deg, #2196F3 0%, #21CBF3 100%)',
-                    borderRadius: '4px 4px 0 0'
-                  }
-                }}
-              >
-                <Tab
-                  label={
-                    <Badge badgeContent={stats.pending} color="primary" sx={{ mr: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <InventoryIcon sx={{ mr: 1 }} />
-                        Pending Approval
-                      </Box>
-                    </Badge>
-                  }
-                  sx={{ fontWeight: 'bold' }}
-                />
-                <Tab
-                  label={
-                    <Badge badgeContent={stats.approved} color="success" sx={{ mr: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <ShippingIcon sx={{ mr: 1 }} />
-                        My Approved
-                      </Box>
-                    </Badge>
-                  }
-                  sx={{ fontWeight: 'bold' }}
-                />
-              </Tabs>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Tabs
+                  value={tabValue}
+                  onChange={handleTabChange}
+                  sx={{
+                    '& .MuiTabs-indicator': {
+                      height: 4,
+                      background: 'linear-gradient(90deg, #2196F3 0%, #21CBF3 100%)',
+                      borderRadius: '4px 4px 0 0'
+                    }
+                  }}
+                >
+                  <Tab
+                    label={
+                      <Badge badgeContent={stats.pending} color="primary" sx={{ mr: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <InventoryIcon sx={{ mr: 1 }} />
+                          Pending Approval
+                        </Box>
+                      </Badge>
+                    }
+                    sx={{ fontWeight: 'bold' }}
+                  />
+                  <Tab
+                    label={
+                      <Badge badgeContent={stats.approved} color="success" sx={{ mr: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <ShippingIcon sx={{ mr: 1 }} />
+                          My Approved
+                        </Box>
+                      </Badge>
+                    }
+                    sx={{ fontWeight: 'bold' }}
+                  />
+                </Tabs>
+                
+                {tabValue === 1 && stats.approved > 0 && (
+                  <Button
+                    variant="contained"
+                    startIcon={<ExportIcon />}
+                    onClick={handleExportReport}
+                    sx={{
+                      background: 'linear-gradient(45deg, #4CAF50 30%, #66BB6A 90%)',
+                      borderRadius: 2,
+                      boxShadow: '0 3px 5px 2px rgba(76, 175, 80, 0.2)',
+                      '&:hover': {
+                        boxShadow: '0 3px 10px 2px rgba(76, 175, 80, 0.3)',
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    Export Approved Report
+                  </Button>
+                )}
+              </Box>
             </Box>
 
             {getAllItems().length === 0 ? (
@@ -674,6 +1086,180 @@ const LogisticsDashboard = () => {
           </CardContent>
         </GradientCard>
       </Container>
+
+      {/* Approval Dialog with Log Section */}
+      <StyledDialog
+        open={openApprovalDialog}
+        onClose={handleCloseApprovalDialog}
+        maxWidth="lg"
+        fullWidth
+        TransitionComponent={Transition}
+      >
+        <DialogTitle sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'linear-gradient(135deg, #4CAF50 0%, #66BB6A 100%)',
+          color: 'white',
+          py: 2
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ApproveIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">
+              Approve Demand Form - Log Section
+            </Typography>
+          </Box>
+          <IconButton onClick={handleCloseApprovalDialog} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ py: 3 }}>
+          {itemToApprove && (
+            <Box>
+              <Box sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                mb: 3,
+                p: 2,
+                background: 'linear-gradient(145deg, rgba(76, 175, 80, 0.05), rgba(102, 187, 106, 0.05))',
+                borderRadius: 2
+              }}>
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                    {getDisplayTitle(itemToApprove)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ID: {itemToApprove._id} • Demand Form
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Typography variant="h6" sx={{ mb: 3, fontWeight: 'bold', color: 'primary.main' }}>
+                <InventoryIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                Log Section Data
+              </Typography>
+
+              {logData.map((log, index) => (
+                <Paper key={index} elevation={1} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'bold', color: 'primary.main' }}>
+                    Item {index + 1}: {itemToApprove.items?.[index]?.description || 'N/A'}
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="SR No"
+                        value={log.srNo}
+                        onChange={(e) => handleLogDataChange(index, 'srNo', e.target.value)}
+                        variant="outlined"
+                        sx={{ mb: 2 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Availability in Stock "
+                        value={log.availabilityInStock}
+                        onChange={(e) => handleLogDataChange(index, 'availabilityInStock', e.target.value)}
+                        variant="outlined"
+                        required
+                        sx={{ mb: 2 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Date Last Issue Made *"
+                        type="date"
+                        value={log.dateLastIssueMade}
+                        onChange={(e) => handleLogDataChange(index, 'dateLastIssueMade', e.target.value)}
+                        variant="outlined"
+                        required
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ mb: 2 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Date Last Purchase *"
+                        type="date"
+                        value={log.dateLastPurchase}
+                        onChange={(e) => handleLogDataChange(index, 'dateLastPurchase', e.target.value)}
+                        variant="outlined"
+                        required
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ mb: 2 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Last Purchase Price "
+                        type="number"
+                        value={log.lastPurchasePrice}
+                        onChange={(e) => handleLogDataChange(index, 'lastPurchasePrice', e.target.value)}
+                        variant="outlined"
+                        required
+                      
+                        sx={{ mb: 2 }}
+                      />
+                    </Grid>
+                  </Grid>
+                </Paper>
+              ))}
+
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
+                  Additional Notes
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add any additional notes or comments for this approval..."
+                  variant="outlined"
+                  sx={{ mb: 2 }}
+                />
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{
+          p: 2,
+          background: 'linear-gradient(145deg, rgba(245,245,245,1), rgba(255,255,255,1))',
+          borderTop: '1px solid rgba(0,0,0,0.1)'
+        }}>
+          <Button
+            onClick={handleCloseApprovalDialog}
+            color="secondary"
+            variant="outlined"
+            sx={{ mr: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmApproval}
+            color="success"
+            variant="contained"
+            startIcon={<ApproveIcon />}
+            sx={{
+              background: 'linear-gradient(45deg, #4CAF50 30%, #66BB6A 90%)',
+              borderRadius: 2,
+              boxShadow: '0 3px 5px 2px rgba(76, 175, 80, 0.1)',
+              '&:hover': {
+                boxShadow: '0 3px 10px 2px rgba(76, 175, 80, 0.2)'
+              }
+            }}
+          >
+            Approve with Log Data
+          </Button>
+        </DialogActions>
+      </StyledDialog>
 
       {/* Request Details Dialog */}
       <StyledDialog
@@ -1142,6 +1728,73 @@ const LogisticsDashboard = () => {
                             </Typography>
                           </Box>
                         </Box>
+                      </Box>
+                    )}
+
+                    {/* Log Data Section - Show if logistics officer has provided log data */}
+                    {selectedDemand.logData && selectedDemand.logData.length > 0 && (
+                      <Box sx={{ 
+                        mb: 3, 
+                        p: 2.5, 
+                        border: '2px solid #FF9800',
+                        borderRadius: 2,
+                        background: 'linear-gradient(145deg, rgba(255, 152, 0, 0.05), rgba(255, 183, 77, 0.1))',
+                        boxShadow: '0 4px 12px rgba(255, 152, 0, 0.15)'
+                      }}>
+                        <Typography variant="h6" sx={{ 
+                          fontWeight: 'bold', 
+                          mb: 2, 
+                          color: '#FF9800',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}>
+                          📋 Logistics Log Section Data
+                        </Typography>
+                        
+                        {selectedDemand.logData.map((log, index) => (
+                          <Paper key={index} elevation={1} sx={{ p: 2, mb: 2, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.8)' }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#FF9800' }}>
+                              Item {index + 1}: {selectedDemand.items?.[index]?.description || 'N/A'}
+                            </Typography>
+                            <Grid container spacing={2}>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">SR No:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{log.srNo || 'N/A'}</Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Availability in Stock:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{log.availabilityInStock || 'N/A'}</Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Date Last Issue:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                  {log.dateLastIssueMade ? new Date(log.dateLastIssueMade).toLocaleDateString() : 'N/A'}
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                <Typography variant="caption" color="text.secondary">Date Last Purchase:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                  {log.dateLastPurchase ? new Date(log.dateLastPurchase).toLocaleDateString() : 'N/A'}
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={12}>
+                                <Typography variant="caption" color="text.secondary">Last Purchase Price:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                                  {log.lastPurchasePrice || '0.00'}
+                                </Typography>
+                              </Grid>
+                            </Grid>
+                          </Paper>
+                        ))}
+                        
+                        {selectedDemand.logNotes && (
+                          <Box sx={{ mt: 2, p: 2, background: 'rgba(255, 152, 0, 0.1)', borderRadius: 2 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: '#FF9800' }}>
+                              Logistics Officer Notes:
+                            </Typography>
+                            <Typography variant="body2">{selectedDemand.logNotes}</Typography>
+                          </Box>
+                        )}
                       </Box>
                     )}
 
